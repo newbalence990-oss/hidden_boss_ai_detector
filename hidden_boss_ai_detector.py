@@ -571,15 +571,16 @@ def main() -> None:
 
     with st.sidebar:
         st.header("系統設定")
-        default_model = "Vehicle Vision V1"
-        model_name = st.text_input("辨識引擎", value=default_model)
+        default_model = "gpt-5.5"
+        model_name = default_model
+        st.write("辨識引擎：Vehicle Vision V1")
         st.write(f"資料庫：{len(DETAIL_DB)} 筆細節")
         st.write("系統狀態：已連線")
 
         if os.getenv("OPENAI_API_KEY"):
             st.success("系統已啟動")
         else:
-            st.error("辨識模組待啟動")
+            st.warning("辨識模組待啟動")
 
     tab1, tab2, tab3 = st.tabs(["圖片辨識", "細節資料庫", "使用說明"])
 
@@ -621,7 +622,7 @@ def main() -> None:
                     if not details:
                         st.info("系統沒有偵測到資料庫內的特殊細節。可以換更清楚的 logo / 尾標 / 輪圈特寫。")
                     else:
-                        st.success(f"偵測到 {len(details)} 個特殊細節")
+                        st.success(f"系統偵測到 {len(details)} 個特殊細節")
 
                         for d in details:
                             name = d["name"]
@@ -660,7 +661,5 @@ def main() -> None:
         st.write("圖片太模糊、太遠、太暗時，AI 可能不會命中。這比亂猜安全。")
 
 
-if __name__ == "__main__":
-    main()
 if __name__ == "__main__":
     main()
