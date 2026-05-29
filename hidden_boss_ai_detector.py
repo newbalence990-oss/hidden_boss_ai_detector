@@ -1,11 +1,10 @@
-
 """
-Hidden Boss AI Detector
-道路隱藏 Boss AI 細節辨識系統
+Hidden Boss Detail Detector
+道路隱藏 Boss 細節辨識系統
 
 功能：
 1. 上傳車輛細節圖片
-2. 呼叫 OpenAI Vision 自動辨識 logo / badge / 輪圈 / 尾標 / 水箱罩 / 排氣 / 煞車
+2. 使用影像辨識模組分析 logo / badge / 輪圈 / 尾標 / 水箱罩 / 排氣 / 煞車
 3. 比對本機警示資料庫
 4. 自動輸出：
    - 偵測細節
@@ -439,10 +438,10 @@ def render_warning(name: str, item: Dict[str, Any], confidence: float | None = N
     c3.metric("資料項目", name)
 
     if confidence is not None:
-        st.write(f"**AI 信心度：** {confidence}")
+        st.write(f"**辨識信心度：** {confidence}")
 
     if ai_reason:
-        st.write(f"**AI 判斷理由：** {ai_reason}")
+        st.write(f"**判斷理由：** {ai_reason}")
 
     st.write(f"**這代表什麼：** {item['meaning']}")
 
@@ -567,22 +566,22 @@ def main() -> None:
         layout="wide"
     )
 
-    st.title("道路隱藏 Boss AI 細節辨識系統")
-    st.caption("上傳圖片後，由 OpenAI Vision 自動辨識 logo、尾標、輪圈、金屬名牌與超豪華品牌細節。")
+    st.title("道路隱藏 Boss 細節辨識系統")
+    st.caption("上傳圖片後，由 影像辨識模組 自動辨識 logo、尾標、輪圈、金屬名牌與超豪華品牌細節。")
 
     with st.sidebar:
         st.header("系統設定")
-        default_model = "gpt-5.5"
-        model_name = st.text_input("OpenAI 模型", value=default_model)
+        default_model = "Vehicle Vision V1"
+        model_name = st.text_input("辨識引擎", value=default_model)
         st.write(f"資料庫：{len(DETAIL_DB)} 筆細節")
-        st.write("API Key 讀取：OPENAI_API_KEY")
+        st.write("系統狀態：已連線")
 
         if os.getenv("OPENAI_API_KEY"):
-            st.success("已讀取 API Key")
+            st.success("系統已啟動")
         else:
-            st.error("尚未讀取 OPENAI_API_KEY")
+            st.error("辨識模組待啟動")
 
-    tab1, tab2, tab3 = st.tabs(["AI 圖片辨識", "細節資料庫", "使用說明"])
+    tab1, tab2, tab3 = st.tabs(["圖片辨識", "細節資料庫", "使用說明"])
 
     with tab1:
         uploaded = st.file_uploader("上傳車輛細節圖片", type=["jpg", "jpeg", "png", "webp"])
@@ -596,22 +595,22 @@ def main() -> None:
                 st.image(image, use_container_width=True)
 
             with col2:
-                st.subheader("AI 自動偵測")
+                st.subheader("自動細節辨識")
                 if not os.getenv("OPENAI_API_KEY"):
-                    st.error("找不到 OPENAI_API_KEY。請先用 setx OPENAI_API_KEY 設定，然後重開 cmd。")
+                    st.error("辨識模組尚未啟動，請確認系統設定後重新啟動。")
                 else:
-                    if st.button("開始 AI 辨識"):
-                        with st.spinner("AI 正在辨識圖片細節..."):
+                    if st.button("開始辨識"):
+                        with st.spinner("系統正在分析圖片細節..."):
                             try:
                                 result = detect_with_openai(image, model_name)
                                 st.session_state["ai_result"] = result
                             except Exception as e:
-                                st.error(f"AI 辨識失敗：{e}")
+                                st.error(f"系統分析失敗：{e}")
 
                 if "ai_result" in st.session_state:
                     result = st.session_state["ai_result"]
 
-                    st.markdown("### AI 圖片摘要")
+                    st.markdown("### 圖片摘要")
                     st.write(result.get("image_summary", "無"))
 
                     st.markdown("### 不確定之處")
@@ -620,7 +619,7 @@ def main() -> None:
                     details = result.get("detected_details", [])
 
                     if not details:
-                        st.info("AI 沒有偵測到資料庫內的特殊細節。可以換更清楚的 logo / 尾標 / 輪圈特寫。")
+                        st.info("系統沒有偵測到資料庫內的特殊細節。可以換更清楚的 logo / 尾標 / 輪圈特寫。")
                     else:
                         st.success(f"偵測到 {len(details)} 個特殊細節")
 
@@ -644,9 +643,9 @@ def main() -> None:
 
     with tab3:
         st.subheader("操作流程")
-        st.write("1. 確認 API Key 已設定。")
+        st.write("1. 確認 系統連線已設定。")
         st.write("2. 上傳清楚圖片。")
-        st.write("3. 按『開始 AI 辨識』。")
+        st.write("3. 按『開始辨識』。")
         st.write("4. 系統會自動比對資料庫並跳出警示。")
 
         st.subheader("建議圖片")
@@ -661,5 +660,7 @@ def main() -> None:
         st.write("圖片太模糊、太遠、太暗時，AI 可能不會命中。這比亂猜安全。")
 
 
+if __name__ == "__main__":
+    main()
 if __name__ == "__main__":
     main()
