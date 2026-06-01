@@ -4,9 +4,10 @@ Hidden Boss Detail Detector
 
 功能：
 1. 上傳車輛細節圖片
-2. 使用影像辨識模組分析 logo / badge / 輪圈 / 尾標 / 水箱罩 / 排氣 / 煞車
-3. 比對本機警示資料庫
-4. 自動輸出：
+2. 優先使用雲端影像辨識模組分析 logo / badge / 輪圈 / 尾標 / 水箱罩 / 排氣 / 煞車
+3. 若雲端辨識失敗，會切換成本地端資料庫模式
+4. 比對本機警示資料庫
+5. 自動輸出：
    - 偵測細節
    - 警示類型
    - 一般人怎麼看
@@ -597,18 +598,26 @@ def main() -> None:
 
             with col2:
                 st.subheader("自動細節辨識")
-                if not os.getenv("OPENAI_API_KEY"):
-                    st.error("辨識模組尚未啟動，請確認系統設定後重新啟動。")
-                else:
-                    if st.button("開始辨識"):
+                st.info("系統會優先使用雲端影像辨識；若連線、額度或金鑰異常，會自動切換成本地端資料庫模式。")
+
+                if st.button("開始辨識"):
+                    if not os.getenv("OPENAI_API_KEY"):
+                        st.warning("雲端辨識模組尚未啟動，已切換成本地端資料庫模式。")
+                        st.session_state["fallback_mode"] = True
+                        st.session_state.pop("ai_result", None)
+                    else:
                         with st.spinner("系統正在分析圖片細節..."):
                             try:
                                 result = detect_with_openai(image, model_name)
                                 st.session_state["ai_result"] = result
+                                st.session_state["fallback_mode"] = False
                             except Exception as e:
-                                st.error(f"系統分析失敗：{e}")
+                                st.warning("雲端辨識失敗，已切換成本地端資料庫模式。")
+                                st.caption(f"錯誤原因：{e}")
+                                st.session_state["fallback_mode"] = True
+                                st.session_state.pop("ai_result", None)
 
-                if "ai_result" in st.session_state:
+                if "ai_result" in st.session_state and not st.session_state.get("fallback_mode", False):
                     result = st.session_state["ai_result"]
 
                     st.markdown("### 圖片摘要")
@@ -632,6 +641,29 @@ def main() -> None:
                                 confidence=d.get("confidence"),
                                 ai_reason=d.get("reason")
                             )
+                            st.divider()
+
+                if st.session_state.get("fallback_mode", False):
+                    st.markdown("### 本地端資料庫模式")
+                    st.write("請根據圖片中看見的 logo、尾標、輪圈、水箱罩、排氣或銘牌，手動選擇對應細節。系統會使用本機資料庫產生警示。")
+
+                    selected_local = st.multiselect(
+                        "選擇圖片中出現的特殊細節",
+                        list(DETAIL_DB.keys())
+                    )
+
+                    if st.button("產生本地端警示分析"):
+                        if not selected_local:
+                            st.info("尚未選擇任何特殊細節。")
+                        else:
+                            st.session_state["local_result"] = selected_local
+
+                    if "local_result" in st.session_state:
+                        local_result = st.session_state["local_result"]
+                        st.success(f"本地端資料庫已產生 {len(local_result)} 筆警示")
+
+                        for name in local_result:
+                            render_warning(name, DETAIL_DB[name])
                             st.divider()
 
         else:
@@ -660,6 +692,9 @@ def main() -> None:
         st.subheader("注意")
         st.write("圖片太模糊、太遠、太暗時，AI 可能不會命中。這比亂猜安全。")
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
