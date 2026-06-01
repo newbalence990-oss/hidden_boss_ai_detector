@@ -4,10 +4,9 @@ Hidden Boss Detail Detector
 
 功能：
 1. 上傳車輛細節圖片
-2. 優先使用雲端影像辨識模組分析 logo / badge / 輪圈 / 尾標 / 水箱罩 / 排氣 / 煞車
-3. 若雲端辨識失敗，會切換成本地端資料庫模式
-4. 比對本機警示資料庫
-5. 自動輸出：
+2. 使用影像辨識模組分析 logo / badge / 輪圈 / 尾標 / 水箱罩 / 排氣 / 煞車
+3. 比對本機警示資料庫
+4. 自動輸出：
    - 偵測細節
    - 警示類型
    - 一般人怎麼看
@@ -556,6 +555,198 @@ logo、badge、尾標、金屬名牌、輪圈中心蓋、水箱罩、排氣、�
     return result
 
 
+
+# =========================
+# 本地 CLIP AI 備援模組
+# =========================
+
+EXCLUDED_DETAILS = [
+    "BBS LM / 多片式輪圈",
+    "Brembo 卡鉗 / 大尺寸煞車",
+    "四出排氣 / 性能排氣布局",
+]
+
+for _detail_name in EXCLUDED_DETAILS:
+    DETAIL_DB.pop(_detail_name, None)
+
+
+CLIP_PROMPTS = {
+    "Alpina 多幅式輪圈 / 尾標 / 車側拉線": [
+        "a photo of Alpina badge on a BMW car",
+        "a photo of Alpina wheel center cap",
+        "a photo of Alpina side stripe on a BMW",
+        "a photo of Alpina rear badge"
+    ],
+    "Carlsson 金屬牌 / 水箱罩 / 輪圈": [
+        "a photo of Carlsson badge on a Mercedes car",
+        "a photo of Carlsson wheel center cap",
+        "a photo of Carlsson grille badge",
+        "a photo of Carlsson emblem"
+    ],
+    "Lorinser 尾標 / 輪圈 / 水箱罩": [
+        "a photo of Lorinser badge on a Mercedes car",
+        "a photo of Lorinser wheel center cap",
+        "a photo of Lorinser grille badge",
+        "a photo of Lorinser emblem"
+    ],
+    "AMG 舊銘牌 / 金屬牌": [
+        "a photo of AMG badge on a Mercedes car",
+        "a photo of AMG emblem",
+        "a photo of AMG rear badge",
+        "a photo of old AMG metal badge"
+    ],
+    "ABT 標誌 / Audi-VW 改裝細節": [
+        "a photo of ABT badge on an Audi car",
+        "a photo of ABT emblem",
+        "a photo of ABT wheel center cap",
+        "a photo of ABT tuning badge"
+    ],
+    "Tourer V 尾標": [
+        "a photo of Toyota Tourer V rear badge",
+        "a photo of Tourer V badge",
+        "a photo of JZX100 Tourer V badge"
+    ],
+    "W8 尾標": [
+        "a photo of Volkswagen W8 rear badge",
+        "a photo of Passat W8 badge",
+        "a photo of W8 badge on a Volkswagen"
+    ],
+    "V12 / S600 / 750iL / W12 尾標": [
+        "a photo of V12 badge on a luxury car",
+        "a photo of W12 badge on a luxury car",
+        "a photo of Mercedes S600 rear badge",
+        "a photo of BMW 750iL rear badge"
+    ],
+    "RS 尾標 / 橢圓排氣": [
+        "a photo of Audi RS badge",
+        "a photo of RS badge on an Audi car",
+        "a photo of Audi RS oval exhaust",
+        "a photo of Audi RS rear badge"
+    ],
+    "STI 粉紅標 / STI 尾標": [
+        "a photo of Subaru STI badge",
+        "a photo of pink STI logo",
+        "a photo of STI rear badge",
+        "a photo of Subaru STI emblem"
+    ],
+    "Mazdaspeed 標誌": [
+        "a photo of Mazdaspeed badge",
+        "a photo of Mazdaspeed emblem",
+        "a photo of Mazda MPS badge",
+        "a photo of Mazdaspeed logo"
+    ],
+    "F 標誌 / Lexus F": [
+        "a photo of Lexus F badge",
+        "a photo of Lexus F emblem",
+        "a photo of IS F rear badge",
+        "a photo of GS F rear badge"
+    ],
+    "VR-4 尾標": [
+        "a photo of Mitsubishi VR-4 badge",
+        "a photo of VR-4 rear badge",
+        "a photo of Galant VR-4 badge",
+        "a photo of Legnum VR-4 badge"
+    ],
+    "Rolls-Royce 女神立標 / RR 徽章": [
+        "a photo of Rolls Royce hood ornament",
+        "a photo of Spirit of Ecstasy ornament",
+        "a photo of Rolls Royce RR badge",
+        "a photo of Rolls Royce front grille"
+    ],
+    "Bentley 飛翼 B 徽章 / 網格水箱罩": [
+        "a photo of Bentley wing logo",
+        "a photo of Bentley badge",
+        "a photo of Bentley front grille",
+        "a photo of Bentley B emblem"
+    ],
+    "Maybach 雙 M 標誌 / Maybach 尾標": [
+        "a photo of Maybach double M emblem",
+        "a photo of Maybach badge",
+        "a photo of Mercedes Maybach rear badge",
+        "a photo of Maybach C pillar logo"
+    ],
+}
+
+
+@st.cache_resource
+def load_local_clip_model():
+    import torch
+    import open_clip
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        "ViT-B-32",
+        pretrained="laion2b_s34b_b79k"
+    )
+    model = model.to(device)
+    model.eval()
+
+    tokenizer = open_clip.get_tokenizer("ViT-B-32")
+    return model, preprocess, tokenizer, device
+
+
+def detect_with_local_clip(image: Image.Image, top_k: int = 3, threshold: float = 0.18) -> Dict[str, Any]:
+    """
+    本地 CLIP AI：
+    不呼叫雲端 API，不需要訓練資料集。
+    透過圖片特徵與文字提示比對，推測最接近的 Hidden Boss 類別。
+    """
+    import torch
+
+    model, preprocess, tokenizer, device = load_local_clip_model()
+
+    labels = []
+    prompts = []
+
+    for name, prompt_list in CLIP_PROMPTS.items():
+        if name not in DETAIL_DB:
+            continue
+        for prompt in prompt_list:
+            labels.append(name)
+            prompts.append(prompt)
+
+    image_input = preprocess(image.convert("RGB")).unsqueeze(0).to(device)
+    text_input = tokenizer(prompts).to(device)
+
+    with torch.no_grad():
+        image_features = model.encode_image(image_input)
+        text_features = model.encode_text(text_input)
+
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+        scores = (100.0 * image_features @ text_features.T).softmax(dim=-1)[0]
+
+    best_by_label = {}
+
+    for label, prompt, score in zip(labels, prompts, scores):
+        score_value = float(score)
+        if label not in best_by_label or score_value > best_by_label[label]["confidence"]:
+            best_by_label[label] = {
+                "name": label,
+                "confidence": score_value,
+                "reason": f"本地 CLIP 與文字提示「{prompt}」相似度最高"
+            }
+
+    ranked = sorted(best_by_label.values(), key=lambda x: x["confidence"], reverse=True)
+
+    selected = [item for item in ranked[:top_k] if item["confidence"] >= threshold]
+
+    if not selected and ranked:
+        selected = [{
+            "name": ranked[0]["name"],
+            "confidence": ranked[0]["confidence"],
+            "reason": ranked[0]["reason"] + "；但信心度偏低，建議人工確認。"
+        }]
+
+    return {
+        "detected_details": selected,
+        "image_summary": "本地 CLIP 模型已完成圖片與 Hidden Boss 類別文字提示比對。",
+        "uncertain_notes": "CLIP 為零樣本比對模型，冷門尾標與小尺寸 logo 可能需要人工確認。"
+    }
+
+
 # =========================
 # Streamlit 主程式
 # =========================
@@ -586,7 +777,11 @@ def main() -> None:
     tab1, tab2, tab3 = st.tabs(["圖片辨識", "細節資料庫", "使用說明"])
 
     with tab1:
-        uploaded = st.file_uploader("上傳車輛細節圖片", type=["jpg", "jpeg", "png", "webp"])
+        uploaded = st.file_uploader(
+            "上傳車輛細節圖片",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="main_image_uploader"
+        )
 
         if uploaded:
             image = Image.open(uploaded).convert("RGB")
@@ -598,27 +793,55 @@ def main() -> None:
 
             with col2:
                 st.subheader("自動細節辨識")
-                st.info("系統會優先使用雲端影像辨識；若連線、額度或金鑰異常，會自動切換成本地端資料庫模式。")
+                st.info("系統會依序嘗試：雲端影像辨識 → 本地 CLIP AI → 本地端資料庫手動模式。")
 
-                if st.button("開始辨識"):
-                    if not os.getenv("OPENAI_API_KEY"):
-                        st.warning("雲端辨識模組尚未啟動，已切換成本地端資料庫模式。")
-                        st.session_state["fallback_mode"] = True
-                        st.session_state.pop("ai_result", None)
-                    else:
-                        with st.spinner("系統正在分析圖片細節..."):
+                if st.button("開始辨識", key="start_detection_button"):
+                    if os.getenv("OPENAI_API_KEY"):
+                        with st.spinner("系統正在使用雲端影像辨識分析圖片..."):
                             try:
                                 result = detect_with_openai(image, model_name)
-                                st.session_state["ai_result"] = result
-                                st.session_state["fallback_mode"] = False
+                                st.session_state["detect_result"] = result
+                                st.session_state["detect_mode"] = "cloud"
+                                st.session_state.pop("local_manual_result", None)
                             except Exception as e:
-                                st.warning("雲端辨識失敗，已切換成本地端資料庫模式。")
-                                st.caption(f"錯誤原因：{e}")
-                                st.session_state["fallback_mode"] = True
-                                st.session_state.pop("ai_result", None)
+                                st.warning("雲端辨識失敗，系統改用本地 CLIP AI。")
+                                st.caption(f"雲端錯誤原因：{e}")
 
-                if "ai_result" in st.session_state and not st.session_state.get("fallback_mode", False):
-                    result = st.session_state["ai_result"]
+                                try:
+                                    with st.spinner("本地 CLIP AI 正在分析圖片..."):
+                                        result = detect_with_local_clip(image)
+                                        st.session_state["detect_result"] = result
+                                        st.session_state["detect_mode"] = "clip"
+                                        st.session_state.pop("local_manual_result", None)
+                                except Exception as clip_error:
+                                    st.warning("本地 CLIP AI 無法執行，已切換成本地端資料庫手動模式。")
+                                    st.caption(f"CLIP 錯誤原因：{clip_error}")
+                                    st.session_state["detect_mode"] = "manual"
+                                    st.session_state.pop("detect_result", None)
+                    else:
+                        st.warning("雲端辨識模組尚未啟動，系統改用本地 CLIP AI。")
+
+                        try:
+                            with st.spinner("本地 CLIP AI 正在分析圖片..."):
+                                result = detect_with_local_clip(image)
+                                st.session_state["detect_result"] = result
+                                st.session_state["detect_mode"] = "clip"
+                                st.session_state.pop("local_manual_result", None)
+                        except Exception as clip_error:
+                            st.warning("本地 CLIP AI 無法執行，已切換成本地端資料庫手動模式。")
+                            st.caption(f"CLIP 錯誤原因：{clip_error}")
+                            st.session_state["detect_mode"] = "manual"
+                            st.session_state.pop("detect_result", None)
+
+                detect_mode = st.session_state.get("detect_mode")
+
+                if detect_mode in ["cloud", "clip"] and "detect_result" in st.session_state:
+                    result = st.session_state["detect_result"]
+
+                    if detect_mode == "cloud":
+                        st.success("目前模式：雲端影像辨識")
+                    else:
+                        st.success("目前模式：本地 CLIP AI")
 
                     st.markdown("### 圖片摘要")
                     st.write(result.get("image_summary", "無"))
@@ -630,36 +853,39 @@ def main() -> None:
 
                     if not details:
                         st.info("系統沒有偵測到資料庫內的特殊細節。可以換更清楚的 logo / 尾標 / 輪圈特寫。")
+                        st.session_state["detect_mode"] = "manual"
                     else:
                         st.success(f"系統偵測到 {len(details)} 個特殊細節")
 
                         for d in details:
                             name = d["name"]
-                            render_warning(
-                                name,
-                                DETAIL_DB[name],
-                                confidence=d.get("confidence"),
-                                ai_reason=d.get("reason")
-                            )
-                            st.divider()
+                            if name in DETAIL_DB:
+                                render_warning(
+                                    name,
+                                    DETAIL_DB[name],
+                                    confidence=d.get("confidence"),
+                                    ai_reason=d.get("reason")
+                                )
+                                st.divider()
 
-                if st.session_state.get("fallback_mode", False):
+                if st.session_state.get("detect_mode") == "manual":
                     st.markdown("### 本地端資料庫模式")
-                    st.write("請根據圖片中看見的 logo、尾標、輪圈、水箱罩、排氣或銘牌，手動選擇對應細節。系統會使用本機資料庫產生警示。")
+                    st.write("請根據圖片中看見的 logo、尾標、輪圈、水箱罩或銘牌，手動選擇對應細節。系統會使用本機資料庫產生警示。")
 
                     selected_local = st.multiselect(
                         "選擇圖片中出現的特殊細節",
-                        list(DETAIL_DB.keys())
+                        list(DETAIL_DB.keys()),
+                        key="manual_detail_selector"
                     )
 
-                    if st.button("產生本地端警示分析"):
+                    if st.button("產生本地端警示分析", key="manual_analyze_button"):
                         if not selected_local:
                             st.info("尚未選擇任何特殊細節。")
                         else:
-                            st.session_state["local_result"] = selected_local
+                            st.session_state["local_manual_result"] = selected_local
 
-                    if "local_result" in st.session_state:
-                        local_result = st.session_state["local_result"]
+                    if "local_manual_result" in st.session_state:
+                        local_result = st.session_state["local_manual_result"]
                         st.success(f"本地端資料庫已產生 {len(local_result)} 筆警示")
 
                         for name in local_result:
@@ -692,6 +918,9 @@ def main() -> None:
         st.subheader("注意")
         st.write("圖片太模糊、太遠、太暗時，AI 可能不會命中。這比亂猜安全。")
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
